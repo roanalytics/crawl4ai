@@ -14,7 +14,7 @@ ARG INSTALL_TYPE=all
 ARG ENABLE_GPU=false
 
 # Platform-specific labels
-LABEL maintainer="unclecode"
+LABEL maintainer="roanalytics"
 LABEL description="🔥🕷️ Crawl4AI: Open-source LLM Friendly Web Crawler & scraper"
 LABEL version="1.0"
 
@@ -24,7 +24,8 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=100 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -63,6 +64,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libasound2 \
     libatspi2.0-0 \
+    fonts-liberation \
+    libappindicator3-1 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # GPU support if enabled and architecture is supported
@@ -80,39 +84,32 @@ WORKDIR /app
 # Copy the entire project
 COPY . .
 
-# Install base requirements
-RUN pip install --no-cache-dir -r requirements.txt
+# Install base requirements and Playwright
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir playwright && \
+    playwright install --with-deps chromium && \
+    playwright install-deps chromium && \
+    chmod -R 777 /root/.cache/ms-playwright
 
 # Install required library for FastAPI
 RUN pip install fastapi uvicorn psutil
 
 # Install ML dependencies first for better layer caching
-RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
-        pip install --no-cache-dir \
-            torch \
-            torchvision \
-            torchaudio \
-            scikit-learn \
-            nltk \
-            transformers \
-            tokenizers && \
-        python -m nltk.downloader punkt stopwords ; \
-    fi
+RUN pip install --no-cache-dir \
+    torch \
+    torchvision \
+    torchaudio \
+    scikit-learn \
+    nltk \
+    transformers \
+    tokenizers && \
+    python -m nltk.downloader punkt stopwords
 
 # Install the package
-RUN if [ "$INSTALL_TYPE" = "all" ] ; then \
-        pip install ".[all]" && \
-        python -m crawl4ai.model_loader ; \
-    elif [ "$INSTALL_TYPE" = "torch" ] ; then \
-        pip install ".[torch]" ; \
-    elif [ "$INSTALL_TYPE" = "transformer" ] ; then \
-        pip install ".[transformer]" && \
-        python -m crawl4ai.model_loader ; \
-    else \
-        pip install "." ; \
-    fi
+RUN pip install ".[all]" && \
+    python -m crawl4ai.model_loader
 
-    # Install MkDocs and required plugins
+# Install MkDocs and required plugins
 RUN pip install --no-cache-dir \
     mkdocs \
     mkdocs-material \
@@ -121,13 +118,6 @@ RUN pip install --no-cache-dir \
 
 # Build MkDocs documentation
 RUN mkdocs build
-
-# Install Playwright and browsers
-RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
-    playwright install chromium; \
-    elif [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-    playwright install chromium; \
-    fi
 
 # Expose port
 EXPOSE 8000 11235 9222 8080
